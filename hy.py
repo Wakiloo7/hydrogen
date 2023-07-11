@@ -5,7 +5,7 @@ import numpy as np
 
 # Time periods
 T = 24
-time_periods = np.arange(1, T+1)
+time_periods = np.arange(1, T + 1)
 
 # Create the model
 model = pe.ConcreteModel()
@@ -33,15 +33,14 @@ model.eta_ELEC = pe.Param(initialize=0.6)  # efficiency of electrolyser
 model.eta_FC = pe.Param(initialize=0.6)  # fuel cell efficiency
 model.HHV_H2 = pe.Param(initialize=39.4)  # higher heating value (HHV) of H2 (39.4 kWh/kg)
 
-
 # Initialize these with sinusoidal time-dependent data
 def pi_e_B_init(model, t):
-    return 0.05 + 0.02 * np.sin(2 * np.pi * (t-1) / 24)
+    return 0.05 + 0.02 * np.sin(2 * np.pi * (t - 1) / 24)
 
 model.pi_e_B = pe.Param(model.t, initialize=pi_e_B_init, mutable=True)  # price at which the H2PP buys electricity from the market
 
 def pi_e_S_init(model, t):
-    return 0.04 + 0.01 * np.sin(2 * np.pi * (t-1) / 24)
+    return 0.04 + 0.01 * np.sin(2 * np.pi * (t - 1) / 24)
 
 model.pi_e_S = pe.Param(model.t, initialize=pi_e_S_init, mutable=True)  # price at which the fuel cell sells its electricity in the market
 
@@ -93,23 +92,25 @@ def chp_demand(model, t):
 
 model.chp_demand = pe.Constraint(model.t, rule=chp_demand)
 
-# H2 storage constraint at the end of the day
-# model.tank_balance = Constraint(expr=model.mH2_plus - model.mH2_minus == model.mH2_plus - model.mH2_minus)
-
+# H2 storage constraint
 def tank_balance_rule(model):
     return sum(model.mH2_CHP[t] for t in model.t) == model.mH2_plus - model.mH2_minus
 
 model.tank_balance = pe.Constraint(rule=tank_balance_rule)
 
+# H2 set point constraint
+def tank_set_point_constraint(model):
+    return model.mH2_plus - model.mH2_minus == model.mH2_SP
+
+model.tank_set_point_constraint = pe.Constraint(rule=tank_set_point_constraint)
 
 # Average electricity prices
 avg_pi_e_B_td = sum(model.pi_e_B[t] for t in model.t) / len(model.t)
-avg_pi_e_B_tmw = sum(model.pi_e_B[t+1] for t in model.t if t < T) / (len(model.t) - 1)
+avg_pi_e_B_tmw = sum(model.pi_e_B[t + 1] for t in model.t if t < T) / (len(model.t) - 1)
 
 # Penalty factors
 model.pi_H2_plus = pe.Param(initialize=avg_pi_e_B_td - avg_pi_e_B_tmw)  # Penalty factor for being above the set point
 model.pi_H2_minus = pe.Param(initialize=avg_pi_e_B_td - avg_pi_e_B_tmw)  # Penalty factor for being below the set point
-
 
 # Objective Function
 def objective_rule(model):
@@ -123,7 +124,6 @@ def objective_rule(model):
     )
 
 model.objective = pe.Objective(rule=objective_rule, sense=pe.maximize)
-
 
 # Solve the model
 solver = po.SolverFactory('gurobi')
@@ -171,3 +171,4 @@ elif results.solver.termination_condition == pe.TerminationCondition.infeasibleO
 else:
     print("Solver Status:", results.solver.status)
     print("Termination Condition:", results.solver.termination_condition)
+    
